@@ -1,0 +1,258 @@
+services:
+  # ——————— Zookeeper & Kafka ———————
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.2
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.2
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_COMPRESSION_TYPE: zstd
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
+      interval: 10s
+      retries: 5
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.3.2
+    depends_on:
+      - kafka
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+    ports:
+      - "8081:8081"
+
+  # ——————— MinIO ———————
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  # ——————— MongoDB ———————
+  mongodb:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # ——————— PostgreSQL ———————
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: processed_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "user"]
+      interval: 10s
+      retries: 5
+
+  # ——————— Flink cluster ———————
+  flink-jobmanager:
+    image: flink:1.19-scala_2.12
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+    ports:
+      - "8081:8081"
+    depends_on:
+      - kafka
+
+  flink-taskmanager:
+    image: flink:1.19-scala_2.12
+    command: taskmanager
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+    depends_on:
+      - flink-jobmanager
+
+  # ——————— TF-Serving (REST) ———————
+  tfserving:
+    image: tensorflow/serving:2.14.1
+    container_name: tfserving
+    ports:
+      - "8501:8501"   
+      - "8500:8500"   
+    volumes:
+      - ./model/mh_bilstm_savedmodel:/models/mh_bilstm
+    environment:
+      - MODEL_NAME=mh_bilstm
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/v1/models/mh_bilstm"]
+      interval: 10s
+      retries: 5
+    restart: on-failure
+
+  # ——————— Triton Inference ———————
+  triton:
+    image: nvcr.io/nvidia/tritonserver:24.02-py3
+    runtime: nvidia
+    command:
+      - tritonserver
+      - --model-repository=/models
+      - --exit-on-error=false
+    volumes:
+      - ./model/mh_bilstm_savedmodel:/models/mh_bilstm
+    ports:
+      - "8000:8000"   
+      - "8001:8001"  
+      - "8002:8002"  
+
+  # ——————— PyFlink job (TF-Serving) ———————
+  pyflink-job:
+    build:
+      context: .
+      dockerfile: .Dockerfile
+      target: pyflink-job
+    depends_on:
+      - flink-jobmanager
+      - flink-taskmanager
+      - kafka
+      - tfserving
+    environment:
+      KAFKA_BROKER: kafka:9092
+      RAW_TOPIC: raw-frames
+      FIGHT_TOPIC: fight-events
+      TF_SERVING_URL: http://tfserving:8501/v1/models/mh_bilstm:predict
+      INFERENCE_TIMEOUT_S: 5.0
+      SEQ_LEN: 16
+      CONFIDENCE_THRESHOLD: 0.6
+
+  # ——————— PyFlink job (Triton) ———————
+  pyflink-job-triton:
+    build:
+      context: .
+      dockerfile: .Dockerfile
+      target: pyflink-job
+    depends_on:
+      - flink-jobmanager
+      - flink-taskmanager
+      - kafka
+      - triton
+    environment:
+      KAFKA_BROKER: kafka:9092
+      RAW_TOPIC: raw-frames
+      FIGHT_TOPIC: fight-events
+      TF_SERVING_URL: http://triton:8000/v2/models/mh_bilstm/infer
+      INFERENCE_TIMEOUT_S: 5.0
+      SEQ_LEN: 16
+      CONFIDENCE_THRESHOLD: 0.6
+
+  # ——————— Consumer downstream ———————
+  consumer-downstream:
+    build:
+      context: .
+      dockerfile: .Dockerfile
+      target: consumer-downstream
+    depends_on:
+      - kafka
+      - mongodb
+    environment:
+      KAFKA_BROKER: kafka:9092
+      FIGHT_TOPIC: fight-events
+      MONGO_URI: mongodb://mongodb:27017/
+      MONGO_DB: video_events
+      MONGO_COLL: fight_highlights
+      HIGHLIGHT_BEFORE_S: 2
+      HIGHLIGHT_AFTER_S: 2
+      WORKER_THREADS: 4
+
+  # ——————— Streamlit Dashboard ———————
+  streamlit-app:a
+    build:
+      context: .
+      dockerfile: .Dockerfile
+      target: streamlit-app
+    depends_on:
+      - mongodb
+      - kafka
+    ports:
+      - "8501:8501"
+    environment:
+      VIDEO_SOURCE: rtsp://camera-stream
+      ALERT_TOPIC: alert_events
+      MONGO_URI: mongodb://mongodb:27017/
+      MONGO_DB: video_events
+      MONGO_COLL: fight_highlights
+      REFRESH_INTERVAL_SEC: 5
+      EVENT_LIMIT: 10
+      DISPLAY_WINDOW_S: 5
+
+  # ——————— Video Producer (test) ———————
+  video-producer:
+    build:
+      context: .
+      dockerfile: .Dockerfile
+      target: video-producer
+    depends_on:
+      - kafka
+      - schema-registry
+    environment:
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC: raw-frames
+      MESSAGE_FREQUENCY: 0.1
+      BATCH_SIZE: 5
+
+  # ——————— MLflow ———————
+  mlflow:
+    image: python:3.9-slim
+    command: >
+      sh -c "pip install mlflow psycopg2-binary boto3 &&
+             mlflow server
+               --backend-store-uri postgresql://user:pass@postgres:5432/processed_db
+               --default-artifact-root s3://mlflow-artifacts/
+               --host 0.0.0.0 --port 5000"
+    environment:
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+      - minio
+
+  # ——————— Monitoring ———————
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./infra/configs/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - ./infra/configs/grafana:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+
+volumes:
+  minio_data:
+  pg_data:
+  mongo_data:
