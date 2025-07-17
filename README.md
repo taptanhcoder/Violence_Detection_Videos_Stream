@@ -1,30 +1,9 @@
 # Violence\_Detection\_Videos\_Stream
 
-> Hệ thống phát hiện hành vi bạo lực trong video stream thời gian thực
-> Sử dụng Apache Kafka, Spark Structured Streaming và mô hình MH‑BiLSTM.
+>Dự án trình bày nghiên cứu và phát triển một hệ thống phát hiện hành vi bạo lực dựa trên công nghệ xử lý luồng dữ liệu thời gian thực, sử dụng Kafka, Apache Spark, và mô hình học sâu MH-BiLSTM và các cải tiếng mà chúng tôi thực hiện .
 
 ---
 
-## Mục lục
-
-* [Giới thiệu](#giới-thiệu)
-* [Tính năng chính](#tính-năng-chính)
-* [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
-* [Yêu cầu trước khi cài đặt](#yêu-cầu-trước-khi-cài-đặt)
-* [Cài đặt & Cấu hình](#cài-đặt--cấu-hình)
-* [Chạy dự án](#chạy-dự-án)
-
-  * [1. Khởi động Kafka & Zookeeper](#1-khởi-động-kafka--zookeeper)
-  * [2. Tạo topics](#2-tạo-topics)
-  * [3. Chạy Spark Streaming](#3-chạy-spark-streaming)
-  * [4. Chạy Kafka Producer](#4-chạy-kafka-producer)
-  * [5. Chạy Kafka Consumer downstream](#5-chạy-kafka-consumer-downstream)
-* [Cấu trúc thư mục](#cấu-trúc-thư-mục)
-* [Docker Compose (tùy chọn)](#docker-compose-tùy-chọn)
-* [Đóng góp](#đóng-góp)
-* [License](#license)
-
----
 
 ## Giới thiệu
 
@@ -34,37 +13,8 @@
 2. Đẩy khung hình vào Kafka (`raw‑frames`).
 3. Spark Structured Streaming giải mã, trích đặc trưng (HOG) và nhóm thành chuỗi.
 4. Mô hình MH‑BiLSTM phân loại thời gian thực, phát hiện hành vi bạo lực.
-5. Kết quả (topic `fight‑events`) được lưu vào PostgreSQL và MongoDB, đồng thời tạo video highlight.
+5. Kết quả (topic `fight‑events`) được lưu vào PostgreSQL và MongoDB, đồng thời hiện cảnh báo .
 
----
-
-## Tính năng chính
-
-* **Real‑time streaming**: latency thấp, xử lý liên tục.
-* **Scalable**: Kafka partitions, Spark executors, dễ dàng scale ngang.
-* **Modular & Configurable**: tách biệt Producer, Spark job, Consumer.
-* **Alert & Highlight**: tự động cắt clip trước/sau sự kiện, lưu trữ và cảnh báo.
-
----
-
-## Kiến trúc hệ thống
-
-```text
-Camera / Video File
-      │
-      ▼
-  Kafka Producer
-      │ Topic: raw‑frames
-      ▼
-Spark Structured Streaming
- (decode → grayscale → resize → HOG → MH‑BiLSTM)
-      │ Topic: fight‑events
-      ▼
-Kafka Consumer ↓─────────► PostgreSQL (long‑term)  
-         │                MongoDB (JSON records + clip paths)
-         ▼
-     Streamlit UI (alert)
-```
 
 ---
 
@@ -99,27 +49,6 @@ Kafka Consumer ↓─────────► PostgreSQL (long‑term)
    pip install -r requirements.txt
    ```
 
-3. **Thiết lập biến môi trường**
-   Tạo file `.env` với nội dung mẫu:
-
-   ```env
-   KAFKA_BOOTSTRAP_SERVERS=localhost:9092
-   RAW_FRAMES_TOPIC=raw-frames
-   FIGHT_EVENTS_TOPIC=fight-events
-
-   POSTGRES_JDBC_URL=jdbc:postgresql://localhost:5432/violence_db
-   POSTGRES_USER=bigdata
-   POSTGRES_PASS=1234
-
-   MONGO_URI=mongodb://localhost:27017
-   MONGO_DB=violence_events
-   ```
-
-   rồi chạy:
-
-   ```bash
-   export $(grep -v '^#' .env | xargs)
-   ```
 
 ---
 
@@ -212,23 +141,3 @@ docker-compose up --build
 Mặc định sẽ khởi động các service: Zookeeper, Kafka, Spark, PostgreSQL, MongoDB, và app Python.
 
 ---
-
-## Đóng góp
-
-1. Fork & clone repo này
-2. Tạo branch feature: `git checkout -b feature/your-feature`
-3. Commit code & push:
-
-   ```bash
-   git add .
-   git commit -m "Add your feature"
-   git push origin feature/your-feature
-   ```
-4. Mở Pull Request vào `main`
-5. Đảm bảo tất cả tests (nếu có) đều pass, coding style và linting ok.
-
----
-
-## License
-
-Distributed under the MIT License. Xem file [`LICENSE`](./LICENSE) để biết chi tiết.
