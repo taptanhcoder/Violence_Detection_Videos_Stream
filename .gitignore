@@ -181,3 +181,10 @@ tf/
 
 
 chk/
+
+/model/hog_mh_bdlstm_best.h5
+/model/mh_bilstm_savedmodel/
+/model/mh_bilstm/
+
+
+infra/
