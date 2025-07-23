@@ -15,7 +15,7 @@
 4. Mô hình MH‑BiLSTM phân loại thời gian thực, phát hiện hành vi bạo lực.
 5. Kết quả (topic `fight‑events`) được lưu vào PostgreSQL và MongoDB, đồng thời hiện cảnh báo .
 
-
+![Real‑Time Violence Detection Pipeline](pipeline.png)
 ---
 
 ## Yêu cầu trước khi cài đặt
@@ -108,27 +108,7 @@ python kafka/kafka_producer.py
 python kafka/consumer_downstream.py
 ```
 
----
 
-## Cấu trúc thư mục
-
-```
-Violence_Detection_Videos_Stream/
-│
-├── kafka/
-│   ├── kafka_producer.py        # Producer: push JPEG bytes → Kafka
-│   └── consumer_downstream.py   # Consumer: trim clip → MongoDB
-│
-├── spark_streaming/
-│   └── stream_job.py            # Spark Structured Streaming job
-│
-├── mh_bilstm_savedmodel/        # Thư mục SavedModel (mounted)
-│
-├── requirements.txt             # Python dependencies
-└── docker-compose.yml           # Tập tin Docker Compose (Kafka, Spark, PG,…)
-```
-
----
 
 ## Docker Compose (tùy chọn)
 
